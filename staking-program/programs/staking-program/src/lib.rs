@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-declare_id!("6MDuQ9j94dXtyud2RC7BxcKXghu79hBNnyUAE51ptDat");
+declare_id!("ENmPXKyjsLzbwGLjGe9E2yztUEQaPWi3qZ5G9gYtxKxB");
 
 const POINTS_PER_SOL_PER_DAY: u64 = 1_000_000;
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
@@ -20,6 +20,13 @@ pub mod staking_program {
         pda_account.last_update_time = clock.unix_timestamp;
         pda_account.bump = ctx.bumps.pda_account;
 
+        let (_vault_pda, vault_bump) = Pubkey::find_program_address(
+            &[b"sol_vault", ctx.accounts.payer.key().as_ref()],
+            ctx.program_id
+        );
+        pda_account.vault_bump = vault_bump;
+
+
         msg!("PDA account created successfully");
         Ok(())
     }
@@ -32,14 +39,14 @@ pub mod staking_program {
         update_points(pda_account, clock.unix_timestamp);
 
         let user_account_info = ctx.accounts.user.to_account_info();
-        let pda_account_info = pda_account.to_account_info();
+        let vault_info = ctx.accounts.vault.to_account_info();
         let system_program_info = ctx.accounts.system_program.to_account_info();
 
         let cpi_context = CpiContext::new(
             system_program_info,
             system_program::Transfer {
                 from: user_account_info,
-                to: pda_account_info,
+                to: vault_info,
             },
         );
 
@@ -73,18 +80,18 @@ pub mod staking_program {
 
         update_points(pda_account, clock.unix_timestamp);
         let binding = ctx.accounts.user.key();
-        let seed = &[b"stake_client", binding.as_ref(), &[pda_account.bump]];
+        let seed = &[b"sol_vault", binding.as_ref(), &[pda_account.vault_bump]];
 
         let signer = &[&seed[..]];
 
         let user_account_info = ctx.accounts.user.to_account_info();
-        let pda_account_info = pda_account.to_account_info();
+        let vault_info = ctx.accounts.vault.to_account_info();
         let system_program_info = ctx.accounts.system_program.to_account_info();
 
         let cpi_context = CpiContext::new_with_signer(
             system_program_info,
             system_program::Transfer {
-                from: pda_account_info,
+                from: vault_info,
                 to: user_account_info,
             },
             signer,
@@ -186,6 +193,13 @@ pub struct Stake<'info> {
         constraint = pda_account.owner == user.key()
     )]
     pub pda_account: Account<'info, StakeAccount>,
+    /// CHECK: This is a PDA used as a vault for storing SOL
+    #[account(
+    mut,
+    seeds = [b"sol_vault", user.key().as_ref()],
+    bump = pda_account.vault_bump
+    )]
+    pub vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -200,6 +214,13 @@ pub struct Unstake<'info> {
         constraint = pda_account.owner == user.key()
     )]
     pub pda_account: Account<'info, StakeAccount>,
+    /// CHECK: This is a PDA used as a vault for storing SOL
+    #[account(
+        mut,
+        seeds=[b"sol_vault", user.key().as_ref()],
+        bump = pda_account.vault_bump
+    )]
+    pub vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -210,7 +231,7 @@ pub struct ClaimPoints<'info> {
 
     #[account(
         mut,
-        seeds = [b"client1", user.key().as_ref()],
+        seeds = [b"stake_client", user.key().as_ref()],
         bump = pda_account.bump,
         constraint = pda_account.owner == user.key()
     )]
@@ -224,9 +245,9 @@ pub struct GetPoints<'info> {
 
     #[account(
         mut,
-        seeds = [b"client1", user.key().as_ref()],
+        seeds = [b"stake_client", user.key().as_ref()],
         bump = pda_account.bump,
-        constraint = pda_account.owner == user.key() @ StakeError::Unauthorized
+        constraint = pda_account.owner == user.key() 
     )]
     pub pda_account: Account<'info, StakeAccount>,
 }
@@ -238,11 +259,19 @@ pub struct CreatePdaAccount<'info> {
     #[account(
         init,
         payer = payer,
-        space = 8 + 32 + 8 + 8 + 8 + 1,
+        space = 8 + 32 + 8 + 8 + 8 + 1 + 1,
         seeds=[b"stake_client", payer.key().as_ref()],
         bump
     )]
     pub pda_account: Account<'info, StakeAccount>,
+  
+    /// CHECK: This is a PDA used as a vault for storing SOL
+    #[account(
+        mut,
+        seeds = [b"sol_vault", payer.key().as_ref()],
+        bump
+    )]
+    pub vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -253,7 +282,10 @@ pub struct StakeAccount {
     pub total_points: u64,
     pub last_update_time: i64,
     pub bump: u8,
+    pub vault_bump: u8,
 }
+
+
 
 #[error_code]
 pub enum StakeError {
