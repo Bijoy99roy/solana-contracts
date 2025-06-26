@@ -14,7 +14,7 @@ pub mod escrow {
 
     use super::*;
 
-    pub fn initialize_escrow(ctx: Context<InitializeEscrow>, amount:u64) -> Result<()> {
+    pub fn initialize_escrow(ctx: Context<InitializeEscrow>, amount:u64, escrow_index: u64) -> Result<()> {
         let escrow_account = &mut ctx.accounts.escrow;
 
         escrow_account.initiator = ctx.accounts.payer.key();
@@ -24,7 +24,8 @@ pub mod escrow {
         escrow_account.is_cancelled = false;
         escrow_account.party_marked_delivered = false;
         escrow_account.bump = ctx.bumps.escrow;
-        let (_, vault_bump) = Pubkey::find_program_address(&[b"sol_vault", ctx.accounts.payer.key().as_ref()], ctx.program_id);
+        escrow_account.index = escrow_index;
+        let (_, vault_bump) = Pubkey::find_program_address(&[b"sol_vault", ctx.accounts.payer.key().as_ref(), &escrow_index.to_le_bytes()], ctx.program_id);
         escrow_account.vault_bump = vault_bump;
 
         let initiator_account_info = ctx.accounts.payer.to_account_info();
@@ -65,7 +66,7 @@ pub mod escrow {
         require!(!escrow_account.is_fullfulled, EscrowError::AlreadyFulfilled);
 
         let initiator_key = ctx.accounts.initiator.key();
-        let seed = [b"sol_vault", initiator_key.as_ref(), &[escrow_account.vault_bump]];
+        let seed = [b"sol_vault", initiator_key.as_ref(), &escrow_account.index.to_le_bytes(), &[escrow_account.vault_bump]];
         let signer = &[&seed[..]];
 
         let party_account_info = ctx.accounts.party.to_account_info();
@@ -82,7 +83,7 @@ pub mod escrow {
     );
 
         system_program::transfer(cpi_context, escrow_account.amount)?;
-
+        escrow_account.is_fullfulled = true;
         msg!("Delivery successfull!!");
         msg!("{} lamports transfered to {}", escrow_account.amount, escrow_account.party);
 
@@ -96,7 +97,7 @@ pub mod escrow {
         require!(!escrow_account.is_fullfulled, EscrowError::AlreadyFulfilled);
 
         let initiator_key = ctx.accounts.initiator.key();
-        let seed = [b"sol_vault", initiator_key.as_ref(), &[escrow_account.vault_bump]];
+        let seed = [b"sol_vault", initiator_key.as_ref(), &escrow_account.index.to_le_bytes(), &[escrow_account.vault_bump]];
         let signer = &[&seed[..]];
 
         let initiator_account_info = ctx.accounts.initiator.to_account_info();
@@ -113,7 +114,7 @@ pub mod escrow {
     );
 
         system_program::transfer(cpi_context, escrow_account.amount)?;
-
+        escrow_account.is_cancelled= true;
         msg!("Escrow cancelled!!");
         msg!("{} lamports transfered back to initator: {}", escrow_account.amount, escrow_account.initiator);
         Ok(())
@@ -126,13 +127,14 @@ pub struct CancelEscrow<'info> {
     pub initiator: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"escrow", initiator.key().as_ref()],
+        seeds = [b"escrow", initiator.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump
     )]
     pub escrow: Account<'info, EscrowAccount>,
+    /// CHECK: This is a PDA derived vault account. Transferred to/from using CPI safely.
     #[account(
         mut,
-        seeds = [b"sol_vault", initiator.key().as_ref()],
+        seeds = [b"sol_vault", initiator.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.vault_bump
     )]
     pub vault: AccountInfo<'info>,
@@ -147,13 +149,14 @@ pub struct DeliveryFullfilled<'info> {
     pub party: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"escrow", initiator.key().as_ref()],
+        seeds = [b"escrow", initiator.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.bump
     )]
     pub escrow: Account<'info, EscrowAccount>,
+    /// CHECK: This is a PDA derived vault account. Transferred to/from using CPI safely.
     #[account(
         mut,
-        seeds = [b"sol_vault", initiator.key().as_ref()],
+        seeds = [b"sol_vault", initiator.key().as_ref(), &escrow.index.to_le_bytes()],
         bump = escrow.vault_bump
     )]
     pub vault: AccountInfo<'info>,
@@ -166,29 +169,32 @@ pub struct  MarkAsDelivered<'info> {
     pub party: Signer<'info>,
     #[account(
     mut,
-    seeds = [b"escrow", escrow.initiator.as_ref()],
+    seeds = [b"escrow", escrow.initiator.as_ref(), &escrow.index.to_le_bytes()],
     bump = escrow.bump
     )]
     pub escrow: Account<'info, EscrowAccount>
 }
 
 #[derive(Accounts)]
+#[instruction(amount: u64, escrow_index: u64)]
 pub struct InitializeEscrow<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
+    /// CHECK: Party is only used for storing the public key and not read/written directly.
     pub party: AccountInfo<'info>,
     #[account(
         init,
         payer=payer,
-        space = 8 + 32 + 32 + 8 + 1 + 1 + 1 + 1 + 1,
-        seeds = [b"escrow", payer.key().as_ref()],
+        space = 8 + 32 + 32 + 8 + 1 + 1 + 1 + 1 + 1 + 8,
+        seeds = [b"escrow", payer.key().as_ref(), &escrow_index.to_le_bytes()],
         bump
         
     )]
     pub escrow: Account<'info, EscrowAccount>,
+    /// CHECK: This is a PDA derived vault account. Transferred to/from using CPI safely.
     #[account(
         mut,
-        seeds = [b"sol_vault", payer.key().as_ref()],
+        seeds = [b"sol_vault", payer.key().as_ref(), &escrow_index.to_le_bytes()],
         bump
     )]
     pub vault: AccountInfo<'info>,

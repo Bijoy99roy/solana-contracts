@@ -10,4 +10,5 @@ pub struct EscrowAccount {
     pub party_marked_delivered: bool,
     pub bump: u8,
     pub vault_bump: u8,
+    pub index: u64
 }
