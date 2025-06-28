@@ -43,7 +43,29 @@ describe("escrow", () => {
     );
     await provider.connection.confirmTransaction(airdropSig);
   })
+it("Fail on Initialize escrow for invalid amount", async () => {
+  try{
+    const escrow_amount = new anchor.BN(0);
+    
+    await program.methods.initializeEscrow(escrow_amount, index1)
+    .accounts
+    ({
+      payer: user.publicKey,
+      party: party.publicKey,
+      escrow: escrow_pda,
+      vault: vault_pda
+    })
+    .signers([user])
+    .rpc();
+  }catch(err) {
+    const anchorError = err as anchor.AnchorError;
+      assert.equal(anchorError.error.errorCode.code, "InvalidAmount");
+      assert.equal(anchorError.error.errorCode.number, 6005);
+      assert.equal(anchorError.error.errorMessage, "Invalid amount");
+  }
+    
 
+  });
 
   it("Initialize escrow", async () => {
     const escrow_amount = new anchor.BN(1_000_000);
@@ -70,6 +92,59 @@ describe("escrow", () => {
 
 
   });
+  it("Fail on delivery fulfilled", async()=>{
+    try{
+      await program.methods.deliveryFulfilled()
+      .accounts({
+        initiator: user.publicKey,
+        party: party.publicKey,
+        escrow: escrow_pda,
+        vault: vault_pda
+      })
+      .signers([user, party])
+      .rpc();
+    } catch(err) {
+      const anchorError = err as anchor.AnchorError;
+      assert.equal(anchorError.error.errorCode.code, "NotDelivered");
+      assert.equal(anchorError.error.errorCode.number, 6004);
+      assert.equal(anchorError.error.errorMessage, "Party has not yet marked delivery");
+    }
+  });
+
+  it("Fail on mark as delivered for unauthorized access", async()=>{
+    try{
+      await program.methods.markAsDelivered()
+    .accounts({
+      party: user.publicKey,
+      escrow: escrow_pda,
+    }).signers([user])
+    .rpc();
+    } catch(err){
+      const anchorError = err as anchor.AnchorError;
+      assert.equal(anchorError.error.errorCode.code, "Unauthorized");
+      assert.equal(anchorError.error.errorCode.number, 6000);
+      assert.equal(anchorError.error.errorMessage, "Unauthorized operation");
+    }
+    
+  })
+
+  it("Fail to cancel unautorized access", async()=>{
+  try{
+    const fakeUser = anchor.web3.Keypair.generate()
+    await program.methods.cancelEscrow()
+    .accounts({
+      initiator: fakeUser.publicKey,
+      escrow: escrow_pda,
+      vault: vault_pda
+    }).signers([fakeUser])
+    .rpc()
+  }catch(err) {
+    const anchorError = err as anchor.AnchorError;
+    assert.equal(anchorError.error.errorCode.code, "Unauthorized");
+    assert.equal(anchorError.error.errorCode.number, 6000);
+    assert.equal(anchorError.error.errorMessage, "Unauthorized operation")
+  }
+  })
 
   it("mark as delivered", async()=>{
     await program.methods.markAsDelivered()
@@ -84,6 +159,29 @@ describe("escrow", () => {
     assert.equal(account.partyMarkedDelivered, true);
 
   });
+
+  it("Fail on delivery fulfuilled for unauthorized access", async()=>{
+    try{
+
+      const fakeUser = anchor.web3.Keypair.generate()
+      
+      await program.methods.deliveryFulfilled()
+    .accounts({
+      initiator: fakeUser.publicKey,
+      party: party.publicKey,
+      escrow: escrow_pda,
+      vault: vault_pda
+    })
+    .signers([fakeUser, party])
+    .rpc();
+    } catch(err){
+      const anchorError = err as anchor.AnchorError;
+      console.log(err)
+      assert.equal(anchorError.error.errorCode.code, "Unauthorized");
+      assert.equal(anchorError.error.errorCode.number, 6000);
+      assert.equal(anchorError.error.errorMessage, "Unauthorized operation")
+    }
+  })
 
   it("delivery fulfuilled", async()=>{
     const escrow_amount = new anchor.BN(1_000_000);
@@ -111,6 +209,43 @@ describe("escrow", () => {
 
   });
 
+  it("Fail on delivery already fulfilled", async()=>{
+    try{
+      await program.methods.deliveryFulfilled()
+    .accounts({
+      initiator: user.publicKey,
+      party: party.publicKey,
+      escrow: escrow_pda,
+      vault: vault_pda
+    })
+    .signers([user, party])
+    .rpc();
+    } catch(err) {
+      const anchorError =  err as anchor.AnchorError;
+
+      assert.equal(anchorError.error.errorCode.code, "AlreadyFulfilled");
+      assert.equal(anchorError.error.errorCode.number, 6002);
+      assert.equal(anchorError.error.errorMessage, "Request already fulfulled");
+    }
+  })
+
+  it("Fail to cancel after delivery already fulfilled", async()=>{
+    try{
+    await program.methods.cancelEscrow()
+    .accounts({
+      initiator: user.publicKey,
+      escrow: escrow_pda,
+      vault: vault_pda
+    }).signers([user])
+    .rpc()
+  }catch(err) {
+    const anchorError = err as anchor.AnchorError;
+    assert.equal(anchorError.error.errorCode.code, "AlreadyFulfilled");
+    assert.equal(anchorError.error.errorCode.number, 6002);
+    assert.equal(anchorError.error.errorMessage, "Request already fulfulled")
+  }
+  })
+
   it("cancel escrow", async()=>{
     const escrow_amount = new anchor.BN(1_000_000);
 
@@ -137,4 +272,22 @@ describe("escrow", () => {
     assert.equal(account.isCancelled, true);
   });
 
+it("Fail on already cancelled", async()=>{
+  try{
+    await program.methods.cancelEscrow()
+    .accounts({
+      initiator: user.publicKey,
+      escrow: escrow_pda2,
+      vault: vault_pda2
+    }).signers([user])
+    .rpc()
+  }catch(err) {
+    const anchorError = err as anchor.AnchorError;
+    assert.equal(anchorError.error.errorCode.code, "AlreadyCancelled");
+    assert.equal(anchorError.error.errorCode.number, 6003);
+    assert.equal(anchorError.error.errorMessage, "Escrow already cancelled")
+  }
+})
+
 });
+

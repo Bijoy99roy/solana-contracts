@@ -12,4 +12,6 @@ pub enum EscrowError {
     AlreadyCancelled,
     #[msg("Party has not yet marked delivery")]
     NotDelivered,
+    #[msg("Invalid amount")]
+    InvalidAmount,
 }
