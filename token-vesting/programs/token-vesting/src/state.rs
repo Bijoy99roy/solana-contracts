@@ -9,7 +9,7 @@ use anchor_lang::prelude::*;
 pub struct TokenVesting {
     /// The vault PDA that owns and hold all tokens to be vested.
     /// This account should be controlled programatically and must not be accessed manually
-    pub ownerVault: Pubkey,
+    pub owner_vault: Pubkey,
 
     /// The beneficiary who will receive the vested tokens.
     pub beneficiary: Pubkey,
@@ -28,4 +28,11 @@ pub struct TokenVesting {
     /// The total amount of tokens to be vested to the beneficiary
     /// Tokens will be linearly released over the duration based on the vesting period.
     pub total_amount: u64,
+}
+
+/// Represents current account index for a pda belonging to the user
+#[account]
+pub struct UserIndex {
+    /// Stores index for current created pda for each user.
+    pub current_index: u64,
 }
