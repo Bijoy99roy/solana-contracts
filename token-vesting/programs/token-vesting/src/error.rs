@@ -45,4 +45,24 @@ pub enum TokenVestingError {
     /// If duration is divided by vesting period the remainder is not zero
     #[msg("Duration is not divisible by vesting period")]
     DurationNotDivisible,
+
+    /// The vesting is yet to start
+    #[msg("Vesting has not started yet")]
+    VestingNotStarted,
+
+    /// Operation is being performed after vesting has ended
+    #[msg("Vesting ended")]
+    VestingEnded,
+
+    /// Vesting period time has not completed
+    #[msg("Vesting period has not been completed yet")]
+    VestingPeriodNotReached,
+
+    /// The variable overflowed
+    #[msg("Variable overflow")]
+    Overflow,
+
+    /// Beneficiary has more token then total assigned token after claiming
+    #[msg("Beneficiary claimed more than total tokens")]
+    OverClaimed,
 }

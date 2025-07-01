@@ -28,11 +28,16 @@ pub struct TokenVesting {
     /// The total amount of tokens to be vested to the beneficiary
     /// Tokens will be linearly released over the duration based on the vesting period.
     pub total_amount: u64,
-}
 
-/// Represents current account index for a pda belonging to the user
-#[account]
-pub struct UserIndex {
-    /// Stores index for current created pda for each user.
-    pub current_index: u64,
+    /// Starting timestamp of vesting for a beneficiary
+    pub start_time: i64,
+
+    /// The amount the beneficiary has claimed so far
+    pub claimed_amount: u64,
+
+    /// How many periods has passed when beneficiary claimed the vested amount
+    pub passed_periods: i64,
+
+    /// The bump seed for the vault that stores solana
+    pub vault_bump: u8,
 }
