@@ -1,4 +1,8 @@
 use anchor_lang::prelude::*;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Mint, Token, TokenAccount, Transfer as SplTransfer},
+};
 
 mod error;
 mod state;
@@ -10,7 +14,6 @@ declare_id!("5qRj7P1BnXSTnhWBi6YBEBSZoYax8wZd9K92kPsj7Xeq");
 
 #[program]
 pub mod token_vesting {
-    use anchor_lang::system_program;
 
     use super::*;
 
@@ -52,30 +55,21 @@ pub mod token_vesting {
         initalize_vesting_account.total_amount = total_amount;
         initalize_vesting_account.passed_periods = 0;
 
-        let (_, vault_bump) = Pubkey::find_program_address(
-            &[
-                b"sol_vault",
-                beneficiary.key().as_ref(),
-                &index.to_le_bytes(),
-            ],
-            ctx.program_id,
-        );
-        initalize_vesting_account.vault_bump = vault_bump;
+        let admin_account_info = ctx.accounts.admin_ata.to_account_info();
+        let vault_info = ctx.accounts.vault_ata.to_account_info();
+        let token_program_info = ctx.accounts.token_program.to_account_info();
+        let user_account_info = ctx.accounts.user.to_account_info();
 
-        let admin_account_info = ctx.accounts.user.to_account_info();
-        let vault_info = ctx.accounts.vault.to_account_info();
-        let system_program_info = ctx.accounts.system_program.to_account_info();
-
-        // Transfering the total amount from admin to vault for storing
-        let cpi_context = CpiContext::new(
-            system_program_info,
-            system_program::Transfer {
+        // Transfer SPL tokens to vault
+        let cpi_ctx = CpiContext::new(
+            token_program_info,
+            SplTransfer {
                 from: admin_account_info,
                 to: vault_info,
+                authority: user_account_info,
             },
         );
-
-        system_program::transfer(cpi_context, total_amount)?;
+        token::transfer(cpi_ctx, total_amount)?;
 
         Ok(())
     }
@@ -95,6 +89,7 @@ pub mod token_vesting {
             TokenVestingError::VestingEnded
         );
 
+        // Calculate the amount to be claimed
         let period_passed = time_lapsed / vesting_account.vesting_period;
 
         let claimable_periods = period_passed - vesting_account.passed_periods;
@@ -117,30 +112,38 @@ pub mod token_vesting {
         vesting_account.passed_periods += claimable_periods;
 
         let beneficiary_key = ctx.accounts.beneficiary.key();
+
+        // Create seed signer for beneficiary account
         let seed = [b"vesting", beneficiary_key.as_ref(), &index.to_le_bytes()];
         let signer = &[&seed[..]];
-        let beneficiary_account_info = ctx.accounts.beneficiary.to_account_info();
-        let vault_info = ctx.accounts.vault.to_account_info();
-        let system_program_info = ctx.accounts.system_program.to_account_info();
+        let beneficiary_ata_account_info = ctx.accounts.beneficiary_ata.to_account_info();
+        let vault_info = ctx.accounts.vault_ata.to_account_info();
+        let token_program_info = ctx.accounts.token_program.to_account_info();
+        let vesting_account_info = vesting_account.to_account_info();
+
+        // Add the claimable amount to claimed account for tracking
         vesting_account.claimed_amount = vesting_account
             .claimed_amount
             .checked_add(claimable_amount)
             .ok_or(TokenVestingError::Overflow)?;
+
         require!(
             vesting_account.claimed_amount <= vesting_account.total_amount,
             TokenVestingError::OverClaimed
         );
+
         // Transfering the claimable token from vault to beneficiary
-        let cpi_context = CpiContext::new_with_signer(
-            system_program_info,
-            system_program::Transfer {
+        let cpi_ctx = CpiContext::new_with_signer(
+            token_program_info,
+            SplTransfer {
                 from: vault_info,
-                to: beneficiary_account_info,
+                to: beneficiary_ata_account_info,
+                authority: vesting_account_info,
             },
             signer,
         );
 
-        system_program::transfer(cpi_context, claimable_amount)?;
+        token::transfer(cpi_ctx, claimable_amount)?;
 
         Ok(())
     }
@@ -158,14 +161,30 @@ pub struct ClaimVestedToken<'info> {
         bump
     )]
     pub vesting_account: Account<'info, TokenVesting>,
-    /// CHECK: This is a PDA derived vault account. Transferred to/from using CPI safely.
+    /// CHECK: Is a accountinfo refering to publickey
+    #[account(address = vesting_account.key())]
+    pub vesting_authority: AccountInfo<'info>,
     #[account(
         mut,
-        seeds = [b"sol_vault", vesting_account.beneficiary.key().as_ref(), &index.to_le_bytes()],
-        bump=vesting_account.vault_bump
+        associated_token::mint = mint,
+        associated_token::authority = vesting_authority,
     )]
-    pub vault: AccountInfo<'info>,
+    pub vault_ata: Account<'info, TokenAccount>,
+
+    #[account(
+        init,
+        payer = beneficiary,
+        associated_token::mint = mint,
+        associated_token::authority = beneficiary,
+    )]
+    pub beneficiary_ata: Account<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub mint: Account<'info, Mint>,
+
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
 }
 
 #[derive(Accounts)]
@@ -187,12 +206,22 @@ pub struct InitializeVesting<'info> {
         bump
     )]
     pub vesting_account: Account<'info, TokenVesting>,
-    /// CHECK: This is a PDA derived vault account. Transferred to/from using CPI safely.
+    /// CHECK: Is a accountinfo refering to publickey
+    #[account(address = vesting_account.key())]
+    pub vesting_authority: AccountInfo<'info>,
+
     #[account(
-        mut,
-        seeds = [b"sol_vault", beneficiary.key().as_ref(), &index.to_le_bytes()],
-        bump
+        init,
+        associated_token::mint = mint,
+        associated_token::authority = vesting_authority,
+        payer = user,
     )]
-    pub vault: AccountInfo<'info>,
+    pub vault_ata: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub admin_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
