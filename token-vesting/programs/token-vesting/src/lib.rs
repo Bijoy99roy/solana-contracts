@@ -54,7 +54,17 @@ pub mod token_vesting {
         initalize_vesting_account.duration = duration;
         initalize_vesting_account.total_amount = total_amount;
         initalize_vesting_account.passed_periods = 0;
-
+        initalize_vesting_account.claimed_amount = 0;
+        let (_vault_pda, vault_bump) = Pubkey::find_program_address(
+            &[b"vault", mint.as_ref(), &index.to_le_bytes()],
+            ctx.program_id,
+        );
+        initalize_vesting_account.vault_bump = vault_bump;
+        let (_vesting_acc_pda, vesting_acc_bump) = Pubkey::find_program_address(
+            &[b"vesting", beneficiary.as_ref(), &index.to_le_bytes()],
+            ctx.program_id,
+        );
+        initalize_vesting_account.bump = vesting_acc_bump;
         let admin_account_info = ctx.accounts.admin_ata.to_account_info();
         let vault_info = ctx.accounts.vault_ata.to_account_info();
         let token_program_info = ctx.accounts.token_program.to_account_info();
@@ -114,7 +124,19 @@ pub mod token_vesting {
         let beneficiary_key = ctx.accounts.beneficiary.key();
 
         // Create seed signer for beneficiary account
-        let seed = [b"vesting", beneficiary_key.as_ref(), &index.to_le_bytes()];
+        // let seed = [
+        //     b"vesting",
+        //     beneficiary_key.as_ref(),
+        //     &index.to_le_bytes(),
+        //     &[vesting_account.vault_bump],
+        // ];
+        let mint = vesting_account.mint;
+        let seed = [
+            b"vault",
+            mint.as_ref(),
+            &index.to_le_bytes(),
+            &[vesting_account.vault_bump],
+        ];
         let signer = &[&seed[..]];
         let beneficiary_ata_account_info = ctx.accounts.beneficiary_ata.to_account_info();
         let vault_info = ctx.accounts.vault_ata.to_account_info();
@@ -158,25 +180,20 @@ pub struct ClaimVestedToken<'info> {
     #[account(
         mut,
         seeds=[b"vesting", beneficiary.key().as_ref(), &index.to_le_bytes()],
-        bump
+        bump=vesting_account.bump
     )]
     pub vesting_account: Account<'info, TokenVesting>,
-    /// CHECK: Is a accountinfo refering to publickey
-    #[account(address = vesting_account.key())]
-    pub vesting_authority: AccountInfo<'info>,
+
     #[account(
         mut,
-        associated_token::mint = mint,
-        associated_token::authority = vesting_authority,
+        seeds = [b"vault", mint.key().as_ref(), &index.to_le_bytes()],
+        bump=vesting_account.vault_bump,
+        token::mint = mint,
+        token::authority = vesting_account,
     )]
     pub vault_ata: Account<'info, TokenAccount>,
 
-    #[account(
-        init,
-        payer = beneficiary,
-        associated_token::mint = mint,
-        associated_token::authority = beneficiary,
-    )]
+    #[account(mut)]
     pub beneficiary_ata: Account<'info, TokenAccount>,
 
     #[account(mut)]
@@ -184,7 +201,6 @@ pub struct ClaimVestedToken<'info> {
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
 }
 
 #[derive(Accounts)]
@@ -200,20 +216,19 @@ pub struct InitializeVesting<'info> {
 
     #[account(
         init,
-        space=8+32+32+32+8+8+8,
+        space=8+32+32+8+8+8 +8+8+8+1+1,
         seeds=[b"vesting", beneficiary.key().as_ref(), &index.to_le_bytes()],
         payer = user,
         bump
     )]
     pub vesting_account: Account<'info, TokenVesting>,
-    /// CHECK: Is a accountinfo refering to publickey
-    #[account(address = vesting_account.key())]
-    pub vesting_authority: AccountInfo<'info>,
 
     #[account(
         init,
-        associated_token::mint = mint,
-        associated_token::authority = vesting_authority,
+        seeds = [b"vault", mint.key().as_ref(), &index.to_le_bytes()],
+        bump,
+        token::mint = mint,
+        token::authority = vesting_account,
         payer = user,
     )]
     pub vault_ata: Account<'info, TokenAccount>,
@@ -222,6 +237,5 @@ pub struct InitializeVesting<'info> {
     #[account(mut)]
     pub admin_ata: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

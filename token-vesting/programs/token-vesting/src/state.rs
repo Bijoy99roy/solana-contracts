@@ -7,10 +7,9 @@ use anchor_lang::prelude::*;
 
 #[account]
 pub struct TokenVesting {
-    /// The vault PDA that owns and hold all tokens to be vested.
-    /// This account should be controlled programatically and must not be accessed manually
-    pub owner_vault: Pubkey,
-
+    // /// The vault PDA that owns and hold all tokens to be vested.
+    // /// This account should be controlled programatically and must not be accessed manually
+    // pub owner_vault: Pubkey,
     /// The beneficiary who will receive the vested tokens.
     pub beneficiary: Pubkey,
 
@@ -40,4 +39,7 @@ pub struct TokenVesting {
 
     /// The bump seed for the vault that stores solana
     pub vault_bump: u8,
+
+    /// The bump seed for the vesting account that stores program state
+    pub bump: u8,
 }
