@@ -18,7 +18,7 @@ pub mod token_vesting {
     use super::*;
 
     /// Initializes a vesting schedule for a beneficiary.
-    /// Transfers `total_amount` of SOL to a vault PDA.
+    /// Transfers `total_amount` of TOKENS to a vault PDA.
     pub fn initialize_vesting(
         ctx: Context<InitializeVesting>,
         mint: Pubkey,
@@ -55,16 +55,21 @@ pub mod token_vesting {
         initalize_vesting_account.total_amount = total_amount;
         initalize_vesting_account.passed_periods = 0;
         initalize_vesting_account.claimed_amount = 0;
+
+        // Derive PDA for token vault of contract
         let (_vault_pda, vault_bump) = Pubkey::find_program_address(
             &[b"vault", mint.as_ref(), &index.to_le_bytes()],
             ctx.program_id,
         );
         initalize_vesting_account.vault_bump = vault_bump;
+
+        // Derive token vesting account PDA
         let (_vesting_acc_pda, vesting_acc_bump) = Pubkey::find_program_address(
             &[b"vesting", beneficiary.as_ref(), &index.to_le_bytes()],
             ctx.program_id,
         );
         initalize_vesting_account.bump = vesting_acc_bump;
+
         let admin_account_info = ctx.accounts.admin_ata.to_account_info();
         let vault_info = ctx.accounts.vault_ata.to_account_info();
         let token_program_info = ctx.accounts.token_program.to_account_info();
@@ -93,25 +98,33 @@ pub mod token_vesting {
 
         let time_lapsed = now - vesting_account.start_time;
 
+        // Check for timelapse since contract is initiated
         require!(time_lapsed > 0, TokenVestingError::VestingNotStarted);
+
+        // Check for Vesting ended. It triggers only when both duration has ended and all tokens have been claimed by the benefiiary
         require!(
-            time_lapsed <= vesting_account.duration,
+            !(time_lapsed >= vesting_account.duration
+                && vesting_account.claimed_amount >= vesting_account.total_amount),
             TokenVestingError::VestingEnded
         );
 
+        let total_periods = vesting_account.duration / vesting_account.vesting_period;
         // Calculate the amount to be claimed
         let period_passed = time_lapsed / vesting_account.vesting_period;
 
-        let claimable_periods = period_passed - vesting_account.passed_periods;
-
+        let mut claimable_periods = period_passed - vesting_account.passed_periods;
+        if claimable_periods > total_periods {
+            claimable_periods = total_periods;
+        }
         require!(
             claimable_periods > 0,
             TokenVestingError::VestingPeriodNotReached
         );
 
-        let total_periods = vesting_account.duration / vesting_account.vesting_period;
+        // Calculate amount to be delivered per vesting period
         let amount_per_period = vesting_account.total_amount / total_periods as u64;
 
+        // The amount beneficiary is eligible to claim on the current vesting period
         let mut claimable_amount = amount_per_period * claimable_periods as u64;
 
         // Add leftover tokens to last claim
@@ -124,19 +137,13 @@ pub mod token_vesting {
         let beneficiary_key = ctx.accounts.beneficiary.key();
 
         // Create seed signer for beneficiary account
-        // let seed = [
-        //     b"vesting",
-        //     beneficiary_key.as_ref(),
-        //     &index.to_le_bytes(),
-        //     &[vesting_account.vault_bump],
-        // ];
-        let mint = vesting_account.mint;
         let seed = [
-            b"vault",
-            mint.as_ref(),
+            b"vesting",
+            beneficiary_key.as_ref(),
             &index.to_le_bytes(),
-            &[vesting_account.vault_bump],
+            &[vesting_account.bump],
         ];
+
         let signer = &[&seed[..]];
         let beneficiary_ata_account_info = ctx.accounts.beneficiary_ata.to_account_info();
         let vault_info = ctx.accounts.vault_ata.to_account_info();
@@ -149,6 +156,7 @@ pub mod token_vesting {
             .checked_add(claimable_amount)
             .ok_or(TokenVestingError::Overflow)?;
 
+        // Check if beneficiary has overclaimed
         require!(
             vesting_account.claimed_amount <= vesting_account.total_amount,
             TokenVestingError::OverClaimed
