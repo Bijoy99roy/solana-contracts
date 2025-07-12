@@ -10,6 +10,7 @@ pub struct DaoState {
     pub proposal_duration: i64,
     pub min_voting_threshold: u64,
     pub bump: u8,
+    pub vault_bump: u8,
 }
 
 impl DaoState {
@@ -22,11 +23,15 @@ impl DaoState {
         quoram: u64,
         proposal_duration: i64,
         min_voting_threshold: u64,
+        bump: u8,
+        vault_bump: u8,
     ) {
         self.authority = authority;
         self.token_mint = token_mint;
-        self.quorum = quorum;
+        self.quoram = quoram;
         self.proposal_duration = proposal_duration;
         self.min_voting_threshold = min_voting_threshold;
+        self.bump = bump;
+        self.vault_bump = vault_bump;
     }
 }

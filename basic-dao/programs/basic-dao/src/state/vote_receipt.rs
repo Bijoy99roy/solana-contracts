@@ -1,4 +1,4 @@
-use anchor_land::prelude::*;
+use anchor_lang::prelude::*;
 
 /// Represent VoteReceipt account
 /// This hold the configuration for a vote receipt for a user per proposal

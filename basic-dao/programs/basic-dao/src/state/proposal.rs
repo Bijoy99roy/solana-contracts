@@ -1,5 +1,9 @@
 use anchor_lang::prelude::*;
 
+use anchor_spl::token::TokenAccount;
+
+use crate::error::DaoError;
+use crate::state::{dao::DaoState, vote_receipt::VoteReceipt};
 /// The following account represents a Proposal account
 /// This holds all the configuration needed for a proposal to form
 
@@ -13,6 +17,7 @@ pub struct Proposal {
     pub end_time: i64,
     pub executed: bool,
     pub action_amount: u64,
+    pub action_target: Pubkey,
     pub bump: u8,
     pub description: String,
 }
@@ -27,8 +32,8 @@ impl Proposal {
         clock: &Clock,
         duration: i64,
         action_amount: u64,
-        action_target: Pubkey
-        description: String
+        action_target: Pubkey,
+        description: String,
     ) -> Result<()> {
         self.dao = dao;
         self.proposer = proposer;
@@ -43,5 +48,36 @@ impl Proposal {
         Ok(())
     }
 
-    
+    pub fn cast_vote(
+        &mut self,
+        token_account: &Account<TokenAccount>,
+        voter: &Pubkey,
+        vote_yes: bool,
+        dao: &DaoState,
+        vote_receipt: &mut Account<VoteReceipt>,
+        proposal_key: Pubkey,
+    ) -> Result<()> {
+        // Apply square root to reduce the influence of whale without punishing then completely
+        let voting_power = (token_account.amount as f64).sqrt().floor() as u64;
+        require!(
+            voting_power >= dao.min_voting_threshold,
+            DaoError::InsufficientVotingpower
+        );
+        let clock = Clock::get()?;
+        require!(
+            clock.unix_timestamp < self.end_time,
+            DaoError::ProposalExpired
+        );
+
+        if vote_yes {
+            self.yes_votes = self.yes_votes.checked_add(voting_power).unwrap();
+        } else {
+            self.no_votes = self.no_votes.checked_add(voting_power).unwrap();
+        }
+        vote_receipt.proposal = proposal_key;
+        vote_receipt.voter = *voter;
+        vote_receipt.voted_yes = vote_yes;
+        vote_receipt.voting_power = voting_power;
+        Ok(())
+    }
 }
