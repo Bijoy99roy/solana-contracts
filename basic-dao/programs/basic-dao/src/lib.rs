@@ -10,7 +10,7 @@ declare_id!("Ew1sk5zpdc32FkkJqtXjKypLuWJRCBLTcPKxCwH75hFz");
 
 #[program]
 pub mod basic_dao {
-    use anchor_lang::solana_program::system_instruction::transfer;
+
     use anchor_spl::token;
 
     use crate::error::DaoError;
@@ -22,6 +22,7 @@ pub mod basic_dao {
         quoram: u64,
         proposal_duration: i64,
         min_voting_threshold: u64,
+        min_proposal_creation_threshold: u64,
         token_allocation: u64,
     ) -> Result<()> {
         let (_, dao_bump) = Pubkey::find_program_address(
@@ -38,6 +39,7 @@ pub mod basic_dao {
             quoram,
             proposal_duration,
             min_voting_threshold,
+            min_proposal_creation_threshold,
             dao_bump,
             vault_bump,
         );
@@ -67,14 +69,16 @@ pub mod basic_dao {
 
     pub fn create_proposal(
         ctx: Context<CreateProposal>,
-        description: String,
         proposal_index: u64,
+        description: String,
+        
         action_amount: u64,
         action_target: Pubkey,
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.proposal.initilize(
-            ctx.accounts.dao.key(),
+            &ctx.accounts.dao,
+            &ctx.accounts.proposer_token_account,
             ctx.accounts.proposer.key(),
             &clock,
             ctx.accounts.dao.proposal_duration,
@@ -127,7 +131,8 @@ pub mod basic_dao {
             }, 
             signer);
 
-            token::transfer(cpi_context, proposal.action_amount)?;
+        token::transfer(cpi_context, proposal.action_amount)?;
+        proposal.executed = true;
         Ok(())
     }
 
@@ -209,7 +214,12 @@ pub struct CreateProposal<'info> {
         bump,
     )]
     pub proposal: Account<'info, Proposal>,
-
+    #[account(
+        constraint = proposer_token_account.owner == proposer.key(),
+        constraint = proposer_token_account.mint == dao.token_mint
+    
+    )]
+    pub proposer_token_account: Account<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
 }
 

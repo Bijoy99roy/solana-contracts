@@ -14,4 +14,6 @@ pub enum DaoError {
     QuoramNotMet,
     #[msg("Stored and provided recipient didn't match")]
     InvalidRecipient,
+    #[msg("Member power is below required threshold to create proposal")]
+    InsufficientProposalCreationPower,
 }

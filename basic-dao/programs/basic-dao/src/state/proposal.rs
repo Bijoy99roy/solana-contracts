@@ -27,7 +27,8 @@ impl Proposal {
 
     pub fn initilize(
         &mut self,
-        dao: Pubkey,
+        dao: &Account<DaoState>,
+        token_account: &Account<TokenAccount>,
         proposer: Pubkey,
         clock: &Clock,
         duration: i64,
@@ -35,7 +36,11 @@ impl Proposal {
         action_target: Pubkey,
         description: String,
     ) -> Result<()> {
-        self.dao = dao;
+        require!(
+            token_account.amount >= dao.min_proposal_creation_threshold,
+            DaoError::InsufficientProposalCreationPower
+        );
+        self.dao = dao.key();
         self.proposer = proposer;
         self.description = description;
         self.yes_votes = 0;

@@ -9,12 +9,13 @@ pub struct DaoState {
     pub quoram: u64,
     pub proposal_duration: i64,
     pub min_voting_threshold: u64,
+    pub min_proposal_creation_threshold: u64,
     pub bump: u8,
     pub vault_bump: u8,
 }
 
 impl DaoState {
-    pub const MAX_SIZE: usize = 32 + 32 + 8 + 8 + 8 + 1;
+    pub const MAX_SIZE: usize = 32 + 32 + 8 + 8 + 8 + 8 + 1 + 1;
 
     pub fn inialize(
         &mut self,
@@ -23,6 +24,7 @@ impl DaoState {
         quoram: u64,
         proposal_duration: i64,
         min_voting_threshold: u64,
+        min_proposal_creation_threshold: u64,
         bump: u8,
         vault_bump: u8,
     ) {
@@ -31,6 +33,7 @@ impl DaoState {
         self.quoram = quoram;
         self.proposal_duration = proposal_duration;
         self.min_voting_threshold = min_voting_threshold;
+        self.min_proposal_creation_threshold = min_proposal_creation_threshold;
         self.bump = bump;
         self.vault_bump = vault_bump;
     }
