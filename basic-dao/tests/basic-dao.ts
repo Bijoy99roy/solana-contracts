@@ -115,7 +115,7 @@ describe("basic-dao", () => {
     daoParams = await setupDao();
   });
   it("Initialize Dao", async () => {
-    const proposalDuration = new anchor.BN(5); // 30 days in seconds
+    const proposalDuration = new anchor.BN(5); // 5 seconds
     const quoram = new anchor.BN(100_000);
     const minVotingThreshold = new anchor.BN(180_000);
     const mintProposalCreationThreshold = new anchor.BN(2_000_000_000);
