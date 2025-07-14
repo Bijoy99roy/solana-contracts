@@ -149,7 +149,7 @@ pub struct ExecuteProposalContext<'info> {
     #[account(
         mut,
         seeds = [b"vault", dao.token_mint.key().as_ref()],
-        bump,
+        bump=dao.vault_bump,
         token::mint = dao.token_mint.key(),
         token::authority = dao.key(),
 

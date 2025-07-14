@@ -5,6 +5,8 @@ import {
   createAssociatedTokenAccount,
   createMint,
   getAccount,
+  getAssociatedTokenAddress,
+  getOrCreateAssociatedTokenAccount,
   mintTo,
 } from "@solana/spl-token";
 import { assert } from "chai";
@@ -113,9 +115,9 @@ describe("basic-dao", () => {
     daoParams = await setupDao();
   });
   it("Initialize Dao", async () => {
-    const proposalDuration = new anchor.BN(30 * 24 * 60 * 60); // 30 days in seconds
-    const quoram = new anchor.BN(10_000_000_000);
-    const minVotingThreshold = new anchor.BN(5_000_000_000);
+    const proposalDuration = new anchor.BN(5); // 30 days in seconds
+    const quoram = new anchor.BN(100_000);
+    const minVotingThreshold = new anchor.BN(180_000);
     const mintProposalCreationThreshold = new anchor.BN(2_000_000_000);
     const tokenAllocation = new anchor.BN(2_000_000_000);
     const { mint, authorityAta, daoPda, vaultAta } = daoParams;
@@ -167,20 +169,22 @@ describe("basic-dao", () => {
     const daoMember2Ata = await prepareAccountWithToken(
       mint,
       daoMember2.publicKey,
-      3_000_000_000
+      50_000_000_000
     );
     await airdropSol(daoMember2.publicKey, 100);
-    console.log(daoPda);
-    console.log(proposalPda);
-    console.log(daoMember2Ata);
-
+    const daoMember1Ata = await createAssociatedTokenAccount(
+      connection,
+      provider.wallet.payer,
+      mint,
+      daoMember1.publicKey
+    );
     await program.methods
       .createProposal(
         proposalIndex,
         description,
 
         actionAmount,
-        daoMember1.publicKey
+        daoMember1Ata
       )
       .accounts({
         proposer: daoMember2.publicKey,
@@ -194,5 +198,123 @@ describe("basic-dao", () => {
     const account = await program.account.proposal.fetch(proposalPda);
     console.log(account.description);
     assert.equal(account.description, description);
+    assert.equal(account.actionAmount.toString(), actionAmount.toString());
+    assert.equal(account.dao.toString(), daoPda.toString());
+    assert.equal(account.actionTarget.toString(), daoMember1Ata.toString());
+    assert.equal(account.proposer.toString(), daoMember2.publicKey.toString());
+  });
+
+  it("Cast vote", async () => {
+    const proposalIndex = new anchor.BN(1);
+    const { mint, authorityAta, daoPda, vaultAta } = daoParams;
+    const [proposalPda, proposalBump] =
+      anchor.web3.PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("proposal"),
+          daoPda.toBuffer(),
+          daoMember2.publicKey.toBuffer(),
+          proposalIndex.toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+
+    const [voteReceiptPda1, voteReceiptBump1] =
+      anchor.web3.PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("vote"),
+          proposalPda.toBuffer(),
+          daoMember2.publicKey.toBuffer(),
+        ],
+        program.programId
+      );
+    const daoMember2Ata = await getAssociatedTokenAddress(
+      mint,
+      daoMember2.publicKey
+    );
+
+    console.log(daoMember2.publicKey);
+    console.log(daoPda);
+    console.log(proposalPda);
+    console.log(voteReceiptPda1);
+    console.log(daoMember2Ata);
+    await program.methods
+      .castVote(true)
+      .accounts({
+        voter: daoMember2.publicKey,
+        dao: daoPda,
+        proposal: proposalPda,
+        voteReceipt: voteReceiptPda1,
+        voterTokenAccount: daoMember2Ata,
+      })
+      .signers([daoMember2])
+      .rpc();
+    console.log("Voter 1 voted");
+    const [voteReceiptPda2, voteReceiptBump2] =
+      anchor.web3.PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("vote"),
+          proposalPda.toBuffer(),
+          daoMember3.publicKey.toBuffer(),
+        ],
+        program.programId
+      );
+    const daoMember3Ata = await prepareAccountWithToken(
+      mint,
+      daoMember3.publicKey,
+      100_000_000_000
+    );
+    await airdropSol(daoMember3.publicKey, 100);
+    await program.methods
+      .castVote(false)
+      .accounts({
+        voter: daoMember3.publicKey,
+        dao: daoPda,
+        proposal: proposalPda,
+        voteReceipt: voteReceiptPda2,
+        voterTokenAccount: daoMember3Ata,
+      })
+      .signers([daoMember3])
+      .rpc();
+
+    const account = await program.account.proposal.fetch(proposalPda);
+    assert.equal(account.yesVotes.toNumber(), 223606);
+    assert.equal(account.noVotes.toNumber(), 316227);
+  });
+
+  it("execute proposal", async () => {
+    await new Promise((res) => setTimeout(res, 5000));
+    const proposalIndex = new anchor.BN(1);
+    const { mint, authorityAta, daoPda, vaultAta } = daoParams;
+    const [proposalPda, proposalBump] =
+      anchor.web3.PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("proposal"),
+          daoPda.toBuffer(),
+          daoMember2.publicKey.toBuffer(),
+          proposalIndex.toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+    const daoMember1Ata = await getAssociatedTokenAddress(
+      mint,
+      daoMember1.publicKey
+    );
+    await program.methods
+      .executeProposal()
+      .accounts({
+        dao: daoPda,
+        proposal: proposalPda,
+        vaultAta: vaultAta,
+        recipientTokenAccount: daoMember1Ata,
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+    const account = await program.account.proposal.fetch(proposalPda);
+    const daoMember1AtaAfter = await getAccount(connection, daoMember1Ata);
+    assert.equal(
+      daoMember1AtaAfter.amount.toString(),
+      account.actionAmount.toString()
+    );
   });
 });
